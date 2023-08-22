@@ -1,0 +1,26 @@
+body {
+  background: black;
+  margin: 0;
+  padding: 0;
+  font-family: "Helvetica";
+  box-sizing: content-box;
+}
+
+#level {
+  color: yellow;
+  font-weight: bold;
+  font-size: 25px;
+}
+#timer-container {
+  color: yellowgreen;
+  font-size: 22px;
+  font-weight: bold;
+}
+.time-up-msg {
+  font-family: "Orbitron", sans-serif;
+  font-weight: 700;
+  font-size: 50px;
+  color: red;
+  margin: auto 5px;
+  text-align: center;
+}

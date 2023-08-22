@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Horrorscape</title>
+    <!-- favicon -->
+    <link rel="apple-touch-icon" sizes="180x180" href="favicon/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="favicon/favicon-16x16.png">
+    <link rel="manifest" href="favicon/site.webmanifest">
+    <!-- bootstrap 5 cdn -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <!-- font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700&display=swap" rel="stylesheet">
+    <!-- three.js -->
+    <script src="js/Three.js"></script>
+    <script src="js/Box2dWeb.min.js"></script>
+    <script src="js/maze.js"></script>
+    <!-- stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body class="position-relative">
+    <div class="position-absolute">
+        <div class="row justify-content-between">
+            <div class="col-12">
+                <div id='level' class="px-2">
+                    Level 1
+                </div>
+            </div>
+            <div class="col-12">
+                <div id="timer-container">
+                    Time Left: <span id="timer" class="px-2">0 </span>Second
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div>
+        <div class="modal fade" id="timeUpModal" aria-hidden="true" aria-labelledby="timeUpModalLabel" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content bg-transparent  pb-4">
+                    <div class="modal-body">
+                        <h2 class="time-up-msg">Game Over!!!</h2>
+                    </div>
+                    <div class=" d-flex justify-content-center">
+                        <button type="button" class="btn btn-danger rounded-5 mx-2" onclick="restart()">
+                            Restart
+                        </button>
+                        <button type="button" class="btn btn-info rounded-3 mx-2" onclick="replay()">
+                            Replay
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+
+        var camera = undefined,
+            scene = undefined,
+            renderer = undefined,
+            light = undefined,
+            mouseX = undefined,
+            mouseY = undefined,
+            maze = undefined,
+            mazeMesh = undefined,
+            mazeDimension = 11,
+            planeMesh = undefined,
+            ballMesh = undefined,
+            ballRadius = 0.25,
+            keyAxis = [0, 0],
+            levelCount = 1,
+            ironTexture = THREE.ImageUtils.loadTexture('images/ball.png'),
+            planeTexture = THREE.ImageUtils.loadTexture('images/concrete.png'),
+            brickTexture = THREE.ImageUtils.loadTexture('images/brick.png'),
+            gameState = undefined,
+            gameTime = 30,
+
+            // Box2D shortcuts
+            b2World = Box2D.Dynamics.b2World,
+            b2FixtureDef = Box2D.Dynamics.b2FixtureDef,
+            b2BodyDef = Box2D.Dynamics.b2BodyDef,
+            b2Body = Box2D.Dynamics.b2Body,
+            b2CircleShape = Box2D.Collision.Shapes.b2CircleShape,
+            b2PolygonShape = Box2D.Collision.Shapes.b2PolygonShape,
+            b2Settings = Box2D.Common.b2Settings,
+            b2Vec2 = Box2D.Common.Math.b2Vec2,
+
+            // Box2D world variables 
+            wWorld = undefined,
+            wBall = undefined;
+
+        function createPhysicsWorld() {
+            // Create the world object. world is head of box2d. 
+            wWorld = new b2World(new b2Vec2(0, 0), true); //gravity=0, doSleep=true
+
+            // Create the ball.
+            var bodyDef = new b2BodyDef();
+            bodyDef.type = b2Body.b2_dynamicBody; //static, kinematic, dynamic
+            bodyDef.position.Set(1, 1); //set starting position
+            wBall = wWorld.CreateBody(bodyDef); //create body instance
+            //adding fixture to ball such shape, size and other tangible characteristics
+            var fixDef = new b2FixtureDef();
+            fixDef.density = 1.0;
+            fixDef.friction = 0.1;
+            fixDef.restitution = 0.3;
+            fixDef.shape = new b2CircleShape(ballRadius); //set ball shape as circle
+            wBall.CreateFixture(fixDef);
+
+            // Create the maze.
+            bodyDef.type = b2Body.b2_staticBody; //set maze as static
+            fixDef.shape = new b2PolygonShape();
+            fixDef.shape.SetAsBox(0.5, 0.5);
+
+            for (var i = 0; i < mazeDimension; i++) {
+                for (var j = 0; j < mazeDimension; j++) {
+                    if (maze[i][j]) {
+                        bodyDef.position.x = i;
+                        bodyDef.position.y = j;
+                        wWorld.CreateBody(bodyDef).CreateFixture(fixDef);
+                    }
+                }
+            }
+        }
+
+
+        function generate_maze_mesh(field) {
+            var dummy = new THREE.Geometry();
+            for (var i = 0; i < field.dimension; i++) {
+                for (var j = 0; j < field.dimension; j++) {
+                    if (field[i][j]) {
+                        var geometry = new THREE.CubeGeometry(1, 1, 1, 1, 1, 1);
+                        var mesh_ij = new THREE.Mesh(geometry);
+                        mesh_ij.position.x = i;
+                        mesh_ij.position.y = j;
+                        mesh_ij.position.z = 0.5;
+                        THREE.GeometryUtils.merge(dummy, mesh_ij);
+                    }
+                }
+            }
+            var material = new THREE.MeshPhongMaterial({ map: brickTexture });
+            var mesh = new THREE.Mesh(dummy, material)
+            return mesh;
+        }
+
+
+        function createRenderWorld() {
+            // Create the scene object.
+            scene = new THREE.Scene();
+
+            // Add the light.
+            light = new THREE.PointLight(0xff0000, 1.0, 100);
+            light.position.set(1, 1, 1.3);
+            scene.add(light);
+
+            // Add the ball.
+            g = new THREE.SphereGeometry(ballRadius, 32, 16);
+            m = new THREE.MeshPhongMaterial({ map: ironTexture });
+            ballMesh = new THREE.Mesh(g, m);
+            ballMesh.position.set(1, 1, ballRadius);
+            scene.add(ballMesh);
+
+            // Add the camera.
+            var aspect = window.innerWidth / window.innerHeight;
+            camera = new THREE.PerspectiveCamera(70, aspect, 0.1, 1000); //FOV, viewAspectRatio, zNear, zFar
+            camera.position.set(1, 1, 5);
+            scene.add(camera);
+
+            // Add the maze.
+            mazeMesh = generate_maze_mesh(maze);
+            scene.add(mazeMesh);
+
+            // Add the ground.
+            g = new THREE.PlaneGeometry(mazeDimension * 10, mazeDimension * 10, mazeDimension, mazeDimension);
+            planeTexture.wrapS = planeTexture.wrapT = THREE.RepeatWrapping;
+            planeTexture.repeat.set(mazeDimension * 5, mazeDimension * 5);
+            m = new THREE.MeshPhongMaterial({ map: planeTexture });
+            planeMesh = new THREE.Mesh(g, m);
+
+            planeMesh.position.set((mazeDimension - 1) / 2, (mazeDimension - 1) / 2, 0);
+            planeMesh.rotation.set(Math.PI / 2, 0, 0);
+            scene.add(planeMesh);
+        }
+
+
+
+        document.addEventListener("keydown", (event) => {
+            keyAxis = [0, 0]
+            switch (event.key) {
+                case 'ArrowDown': {
+                    keyAxis = [0, -1]
+                    break
+                }
+                case 'ArrowUp': {
+                    keyAxis = [0, 1]
+                    break
+                }
+                case 'ArrowLeft': {
+                    keyAxis = [-1, 0]
+                    break
+                }
+                case 'ArrowRight': {
+                    keyAxis = [1, 0]
+                    break
+                }
+            }
+        })
+
+        function updatePhysicsWorld() {
+
+            // Apply "friction". 
+            var lv = wBall.GetLinearVelocity();
+            lv.Multiply(0.95);
+            wBall.SetLinearVelocity(lv);
+
+            // Apply user-directed force.
+            var f = new b2Vec2(keyAxis[0] * wBall.GetMass() * 0.6, keyAxis[1] * wBall.GetMass() * 0.6);
+            wBall.ApplyImpulse(f, wBall.GetPosition());
+            keyAxis = [0, 0];
+
+            // Take a time step.
+            wWorld.Step(1 / 60, 8, 3);
+        }
+
+
+        function updateRenderWorld() {
+            // Update ball position.
+            var stepX = wBall.GetPosition().x - ballMesh.position.x;
+            var stepY = wBall.GetPosition().y - ballMesh.position.y;
+            ballMesh.position.x += stepX;
+            ballMesh.position.y += stepY;
+
+            // Update ball rotation.
+            var tempMat = new THREE.Matrix4();
+            tempMat.makeRotationAxis(new THREE.Vector3(0, 1, 0), stepX / ballRadius);
+            tempMat.multiplySelf(ballMesh.matrix);
+            ballMesh.matrix = tempMat;
+            tempMat = new THREE.Matrix4();
+            tempMat.makeRotationAxis(new THREE.Vector3(1, 0, 0), -stepY / ballRadius);
+            tempMat.multiplySelf(ballMesh.matrix);
+            ballMesh.matrix = tempMat;
+            ballMesh.rotation.getRotationFromMatrix(ballMesh.matrix);
+
+            // Update camera and light positions.
+            camera.position.x += (ballMesh.position.x - camera.position.x) * 0.1;
+            camera.position.y += (ballMesh.position.y - camera.position.y) * 0.1;
+            camera.position.z += (5 - camera.position.z) * 0.1;
+            light.position.x = camera.position.x;
+            light.position.y = camera.position.y;
+            light.position.z = camera.position.z - 3.7;
+        }
+
+
+        function gameLoop() {
+
+            switch (gameState) {
+
+                case 'initialize':
+                    maze = generateSquareMaze(mazeDimension);
+                    maze[mazeDimension - 1][mazeDimension - 2] = false;
+                    createPhysicsWorld();
+                    createRenderWorld();
+                    camera.position.set(1, 1, 5);
+                    light.position.set(1, 1, 1.3);
+                    light.intensity = 0;
+                    document.getElementById('level').innerHTML = `Level: ${levelCount}`
+                    document.getElementById('timer').innerHTML = gameTime;
+                    gameState = 'fade in';
+                    break;
+
+                case 'fade in':
+                    light.intensity += 0.1 * (1.0 - light.intensity);
+                    renderer.render(scene, camera);
+                    if (Math.abs(light.intensity - 1.0) < 0.05) {
+                        light.intensity = 1.0;
+                        gameState = 'play'
+                    }
+                    break;
+
+                case 'play':
+                    updatePhysicsWorld();
+                    updateRenderWorld();
+                    renderer.render(scene, camera);
+
+                    // Check for victory.
+                    var mazeX = Math.floor(ballMesh.position.x + 0.5);
+                    var mazeY = Math.floor(ballMesh.position.y + 0.5);
+                    if (mazeX == mazeDimension && mazeY == mazeDimension - 2) {
+                        mazeDimension += 2;
+                        gameState = 'fade out';
+                        levelCount += 1;
+
+                        //update game time based on maze dimension
+                        mazeDimension % 5 == 0 ? gameTime += 10 : gameTime += 0;
+                    }
+                    break;
+
+                case 'fade out':
+                    updatePhysicsWorld();
+                    updateRenderWorld();
+                    light.intensity += 0.1 * (0.0 - light.intensity);
+                    renderer.render(scene, camera);
+                    if (Math.abs(light.intensity - 0.0) < 0.1) {
+                        light.intensity = 0.0;
+                        renderer.render(scene, camera);
+                        gameState = 'initialize'
+                    }
+                    break;
+
+                case 'time-up':
+                    //do nothing
+                    break;
+
+
+                case 'replay':
+                    createPhysicsWorld();
+                    createRenderWorld();
+                    camera.position.set(1, 1, 5);
+                    light.position.set(1, 1, 1.3);
+                    light.intensity = 0;
+                    document.getElementById('level').innerHTML = `Level: ${levelCount}`
+                    document.getElementById('timer').innerHTML = gameTime;
+                    gameState = 'fade in';
+
+                    break;
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+
+        function timer() {
+            var modal_obj = document.getElementById('timeUpModal');
+            modal_obj.style.display = "none"
+
+            let interval_id;
+
+            let time = gameTime
+            const current_level = levelCount;
+
+            const updateTimer = () => {
+
+                if (time <= 0) {
+
+                    gameState = 'time-up';
+
+                    modal_obj.classList.add('show'); // Add the 'show' class to display the modal
+                    modal_obj.style.display = 'block'; // Change the display style to block
+                    modal_obj.setAttribute('aria-hidden', 'false')
+
+                    clearInterval(interval_id)
+                }
+
+                else if (levelCount > current_level) {
+
+                    clearInterval(interval_id)
+                    timer()
+                }
+
+                document.getElementById('timer').innerHTML = time;
+                time = time - 1;
+            }
+
+            interval_id = setInterval(updateTimer, 1000);
+        }
+
+
+        function restart() {
+
+            gameState = 'initialize';
+            mazeDimension = 11;
+            levelCount = 1;
+            gameTime = 30;
+
+            timer()
+        }
+
+        function replay() {
+            gameState = 'replay';
+
+            timer();
+        }
+
+
+        function start() {
+            // Create the renderer.
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth - 15, window.innerHeight - 15);
+            document.body.appendChild(renderer.domElement);
+
+            // Set the initial game state.
+            gameState = 'initialize';
+            timer()
+
+            // Start the game loop.
+            requestAnimationFrame(gameLoop);
+        }
+
+
+        start()
+
+    </script>
+</body>
+
+<!-- bootstrap js cdn -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"
+    integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM"
+    crossorigin="anonymous"></script>
+
+</html>
